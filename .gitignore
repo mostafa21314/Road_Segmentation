@@ -1,0 +1,87 @@
+# ============================================================
+# Datasets — never commit raw data
+# ============================================================
+CULane_Rural_Subset*/
+data/
+
+# ============================================================
+# FENet — ignore everything except our contributions
+# ============================================================
+FENet/
+# Re-include our finetune config
+!FENet/
+!FENet/configs/
+!FENet/configs/fenet/
+!FENet/configs/fenet/FENetV2_dla34_culane_rural_finetune.py
+
+# ============================================================
+# SegMAN — ignore everything except our contributions
+# ============================================================
+SegMAN/
+# Re-include our CULane scripts and configs
+!SegMAN/
+!SegMAN/convert_culane_to_masks.py
+!SegMAN/train.py
+!SegMAN/validate.py
+!SegMAN/segmentation/
+!SegMAN/segmentation/run_inference.py
+!SegMAN/segmentation/save_masks_from_pkl.py
+!SegMAN/segmentation/save_raw_masks.py
+!SegMAN/segmentation/pkl_to_masks.py
+!SegMAN/segmentation/local_configs/
+!SegMAN/segmentation/local_configs/segman/
+!SegMAN/segmentation/local_configs/segman/small/
+!SegMAN/segmentation/local_configs/segman/small/segman_s_culane.py
+!SegMAN/segmentation/local_configs/_base_/
+!SegMAN/segmentation/local_configs/_base_/datasets/
+!SegMAN/segmentation/local_configs/_base_/datasets/culane_590x590.py
+!SegMAN/segmentation/work_dirs/
+!SegMAN/segmentation/work_dirs/segman_s_culane/
+!SegMAN/segmentation/work_dirs/segman_s_culane/*.py
+
+# ============================================================
+# CLRerNet and FENet — ignore other cloned repos entirely
+# ============================================================
+CLRerNet/
+
+# ============================================================
+# Scripts — always include
+# ============================================================
+!Scripts/
+
+# ============================================================
+# Python / build artifacts
+# ============================================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# ============================================================
+# Model checkpoints and large binaries
+# ============================================================
+*.pth
+*.pkl
+*.ckpt
+*.bin
+*.onnx
+
+# ============================================================
+# Logs and caches
+# ============================================================
+*.log
+cache/
+wandb/
+runs/
+
+# ============================================================
+# OS / editor noise
+# ============================================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
