@@ -1,6 +1,7 @@
 # dataset settings for CULane (binary: background + lane)
-dataset_type = 'CustomDataset'
+dataset_type = 'CULaneDataset'
 data_root = 'data/culane/'
+gt_txt_dir = 'CULane_Rural_Subset(1)/CULane_Rural_Subset'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 crop_size = (512, 512)
@@ -10,7 +11,7 @@ palette = [[0, 0, 0], [255, 255, 255]]
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations'),
-    dict(type='Resize', img_scale=(1640, 590), ratio_range=(0.5, 1.5)),
+    dict(type='Resize', img_scale=(1640, 590), ratio_range=(0.8, 1.5)),
     dict(type='RandomCrop', crop_size=crop_size),
     dict(type='RandomFlip', prob=0.5),
     dict(type='PhotoMetricDistortion'),
@@ -40,7 +41,7 @@ data = dict(
         type='RepeatDataset',
         times=20,
         dataset=dict(
-            type=dataset_type,
+            type='CustomDataset',
             data_root=data_root,
             img_dir='img_dir/train',
             ann_dir='ann_dir/train',
@@ -52,6 +53,7 @@ data = dict(
     val=dict(
         type=dataset_type,
         data_root=data_root,
+        gt_txt_dir=gt_txt_dir + '/val',
         img_dir='img_dir/val',
         ann_dir='ann_dir/val',
         img_suffix='.jpg',
@@ -62,6 +64,7 @@ data = dict(
     test=dict(
         type=dataset_type,
         data_root=data_root,
+        gt_txt_dir=gt_txt_dir + '/test',
         img_dir='img_dir/test',
         ann_dir='ann_dir/test',
         img_suffix='.jpg',

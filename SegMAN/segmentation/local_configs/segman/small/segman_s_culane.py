@@ -25,10 +25,13 @@ model = dict(
         norm_cfg=norm_cfg,
         align_corners=False,
         loss_decode=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            loss_weight=1.0,
-            class_weight=[1.0, 10.0])),  # upweight lane class (~24:1 bg:lane ratio)
+            _delete_=True,
+            type='ProximityWeightedCELoss',
+            lane_weight=15.0,
+            proximity_weight=8.0,
+            proximity_radius=10,
+            edge_multiplier=4.0,    # edge pixels get their weight * 4
+            loss_weight=1.0)),
     # model training and testing settings
     train_cfg=dict(),
     test_cfg=dict(mode='slide', crop_size=(512, 512), stride=(384, 384)))
@@ -50,7 +53,7 @@ lr_config = dict(
     power=1.0, min_lr=0.0, by_epoch=False)
 
 data = dict(samples_per_gpu=4, workers_per_gpu=4)
-evaluation = dict(interval=2000, metric='mIoU', save_best='mIoU')
+evaluation = dict(interval=2000, metric=['mIoU', 'mFscore'], save_best='mIoU')
 
 custom_hooks = [
     dict(

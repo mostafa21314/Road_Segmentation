@@ -127,4 +127,9 @@ seed = 0
 num_classes = 4 + 1
 ignore_label = 255
 bg_weight = 0.4
+# Proximity loss: background pixels within proximity_radius of any lane pixel
+# are penalized at border_weight (= 4x bg_weight) to sharpen lane boundaries.
+# Computed on the GPU each iteration — no mask regeneration needed.
+proximity_radius = 5
+border_weight = 6*bg_weight      # 4 * bg_weight
 lr_update_by_epoch = False
