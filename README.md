@@ -15,14 +15,25 @@ Scripts and configs for two experiments using [FENet](https://github.com/WangLim
 
 ```
 Road_Segmentation/
-├── Scripts/                                              ← data preparation (our work)
-│   ├── rename_annotations.py                             ← Step 1 (FENet)
-│   ├── generate_seg_masks.py                             ← Step 2 (FENet)
-│   ├── generate_list_files.py                            ← Step 3 (FENet)
-│   └── setup_fenet_data_link.py                         ← Step 4 (FENet)
+├── Scripts/                                              ← data prep + visualisation (our work)
+│   ├── rename_annotations.py                             ← FENet prep — Step 1
+│   ├── generate_seg_masks.py                             ← FENet prep — Step 2
+│   ├── generate_list_files.py                            ← FENet prep — Step 3
+│   ├── setup_fenet_data_link.py                          ← FENet prep — Step 4
+│   ├── generate_vehicle_masks.py                         ← YOLOv8-seg vehicle masks
+│   ├── verify_vehicle_masks.py                           ← sanity-check vehicle/lane overlap
+│   ├── generate_driveable_overlays.py                    ← SegMAN driveable overlay (CULane)
+│   ├── export_idd_fenet_lanes.py                         ← FENet inference cache (IDD)
+│   ├── generate_idd_combined_overlays.py                 ← SegMAN+FENet still overlay (IDD)
+│   ├── export_video_fenet_lanes.py                       ← FENet inference cache (video pipeline)
+│   ├── render_combined_video.py                          ← SegMAN+FENet video render
+│   ├── run_driveable_overlays.sh                         ← wrapper: CULane driveable pipeline
+│   ├── run_driveable_overlays_indian.sh                  ← wrapper: IDD combined-still pipeline
+│   └── run_combined_video.sh                             ← wrapper: combined-video pipeline
 ├── FENet/
 │   └── configs/fenet/
-│       └── FENetV2_dla34_culane_rural_finetune.py        ← our finetune config (our work)
+│       ├── FENetV2_dla34_culane_rural_finetune.py        ← rural finetune config (our work)
+│       └── FENetV2_dla34_culane_rural_finetune_vehicle.py← vehicle-aware variant (our work)
 ├── SegMAN/
 │   ├── convert_culane_to_masks.py                        ← CULane → MMSeg mask conversion (our work)
 │   ├── prepare_idd20k_road_masks.py                      ← IDD-20k-II mask preparation (our work)
@@ -241,6 +252,63 @@ Metrics reported after each epoch (evaluated on the test split, ~407 rural image
 | mF1 | Mean F1 across IoU thresholds 0.50–0.95 |
 | Precision / Recall | At each threshold |
 
+### Vehicle-aware FENet finetune (YOLOv8 cars as positive anchors)
+
+Hypothesis: when a vehicle covers a lane in CULane, the annotators still drew the lane polyline through it — so the GT lane "passes under" the car. The base seg loss treats those pixels like any other lane pixel; the vehicle-aware variant up-weights them so the model is pushed to *infer* the lane through the occlusion (the car becomes a positive anchor for where a lane should be).
+
+Pipeline:
+
+1. **Generate vehicle masks** (one-time, from any env that has `ultralytics`):
+
+   ```bash
+   pip install ultralytics                 # only needed once
+   python Scripts/generate_vehicle_masks.py
+   ```
+
+   Runs `yolov8s-seg.pt` (auto-downloads on first use, ~22 MB) on every image in `train/`, `val/`, `test/`. Unions COCO classes `car (2)`, `motorcycle (3)`, `bus (5)`, `truck (7)` into one binary mask per image at the original `1640×590` resolution. Output:
+   ```
+   <dataset>/vehicle_masks/{train,val,test}/<stem>.png   (uint8, 0 or 255)
+   ```
+   The bigger `yolov8s` is preferred over `yolov8n` because rural CULane has many distant / small vehicles. Confidence threshold is permissive (0.25) since we only use the union, not per-detection scores.
+
+2. **Verify the assumption** — before touching the loss, confirm that GT lanes really do pass through vehicles:
+
+   ```bash
+   python Scripts/verify_vehicle_masks.py
+   ```
+
+   Picks 30 random training images that have at least one vehicle and writes overlays to `<dataset>/vehicle_masks_overlays/<stem>.png`:
+   - Red = vehicle mask, green = GT lane, **yellow = the overlap pixels the loss will target**.
+   If lanes clearly stop at vehicle edges (no yellow), the loss would teach the wrong thing — bail out before training.
+
+3. **Run finetuning with the vehicle-aware config**:
+
+   ```bash
+   conda activate fenet
+   cd FENet
+
+   python main.py configs/fenet/FENetV2_dla34_culane_rural_finetune_vehicle.py \
+       --load_from ./fenetv2_culane_dla34.pth --gpus 0 --view
+   ```
+
+   How the loss change works (no extra branch, no extra parameters):
+
+   | Step | What happens |
+   |---|---|
+   | `BaseDataset` | If `cfg.use_vehicle_masks` is `True`, loads `vehicle_masks/<split>/<stem>.png` next to each lane mask and **bit-packs it into the seg label** (`label += 16 * (vehicle > 0)`). |
+   | `GenerateLaneLine` | Imgaug runs on the bit-packed seg mask, so geometric transforms stay consistent between the lane channel and the vehicle channel. |
+   | `SplitVehicleFromSeg` | New transform inserted between augmentation and `ToTensor`. Splits the mask back into `seg` (lane IDs 0-4) and `vehicle_mask` (0/1). |
+   | `ToTensor` | Includes `'vehicle_mask'` in the keys so the head sees it on every batch. |
+   | `proximity_seg_loss` | When `vehicle_mask` is provided, GT lane pixels that fall inside a vehicle get `occluded_lane_weight` (default 8.0) instead of 1.0. Border pixels and bg pixels keep their normal weights. |
+
+   The default config uses `occluded_lane_weight = 8.0`. Lower it (e.g. 4.0) if the model starts hallucinating lanes through every car.
+
+4. **Output layout** is identical to the baseline finetune, just under a separate `work_dir`:
+   ```
+   FENet/work_dirs/fenetv2/dla34_culane_rural_finetune_vehicle/
+   ```
+   so you can do an A/B comparison against the non-vehicle finetune by checkpoint and visualisation diff.
+
 ### Running SegMAN CULane
 
 #### Step 1 — Prepare the dataset (run once)
@@ -303,6 +371,91 @@ python tools/train.py \
     --resume-from work_dirs/segman_s_culane/latest.pth \
     --gpu-id 0
 ```
+
+---
+
+## Visualisation & Inference Pipelines
+
+Three end-to-end pipelines that combine SegMAN driveable predictions with FENet lane predictions. All three are wrapped in self-contained bash scripts in `Scripts/` — you can run them directly without prepping the shell. Each wrapper:
+
+- Strips any active non-conda venv from `PATH` (the `federated_unlearning` venv on this machine shadows conda otherwise).
+- Sources `/home/g6/miniconda3/etc/profile.d/conda.sh` and switches between the `fenet` (py3.8) and `segman` (py3.10) envs as needed. Two envs are required because FENet's compiled `nms_impl.so` is built for py3.8 and can't be loaded inside the py3.10 segman env where `mmseg` lives. Each pipeline that touches both models runs FENet first to dump predictions to disk, then runs SegMAN against the cache.
+
+### 1. SegMAN driveable overlay on CULane
+
+```bash
+./Scripts/run_driveable_overlays.sh
+```
+
+Runs SegMAN(IDD20k) on CULane test images and overlays the predicted driveable area against the **CULane GT lane masks** (no FENet involved). Useful for spotting cases where the annotator drew a lane on what SegMAN considers undriveable.
+
+| Stage | Script | Env | Effect |
+|---|---|---|---|
+| 1 | `rename_annotations.py` | segman | `<x>.txt` → `<x>.lines.txt` (idempotent). |
+| 2 | `generate_seg_masks.py` | segman | Builds `<dataset>/laneseg_label_w16/<split>/*.png`. |
+| 3 | `generate_driveable_overlays.py` | segman | Runs SegMAN on a 50% sample of the test split and writes `<dataset>/driveable_overlays/<stem>__on{N}_off{M}.png`. |
+
+Colour key in the overlays: **blue** = driveable area, **green** = GT lane on driveable, **red** = GT lane on non-driveable.
+
+### 2. SegMAN + FENet still overlay on IDD (reverse direction)
+
+```bash
+./Scripts/run_driveable_overlays_indian.sh
+```
+
+The reverse: runs SegMAN(IDD20k) **and** the rural-finetuned FENet on Indian Driving Dataset val frames, then overlays both predictions on each image. Two-stage because we cross conda envs.
+
+| Stage | Script | Env | Effect |
+|---|---|---|---|
+| 1 | `export_idd_fenet_lanes.py` | fenet | Picks 30 random IDD val jpgs, runs FENet, caches per-frame lanes to `idd20k/fenet_lanes_cache/<stem>.npy`. |
+| 2 | `generate_idd_combined_overlays.py` | segman | Loads each cached prediction, runs SegMAN, writes `idd20k/combined_overlays/<stem>.png`. |
+| 3 | (bash) | — | Copies the PNGs into `<dataset>/driveable_overlays_indian/` so all visualisations live together. |
+
+Colour key: **blue** = SegMAN driveable area, **coloured polylines** = FENet lanes (one colour per lane).
+
+### 3. Combined-inference video on either dataset
+
+```bash
+./Scripts/run_combined_video.sh <indian|culane> [smooth_k] [fps] [clip] [source_dir]
+```
+
+Runs both models on **consecutive frames** from one source clip and produces a video showing the fused output frame-by-frame. Live `cv2.imshow` window plus a saved MP4. Press `q` or `Esc` in the window to stop early — the partial MP4 still flushes.
+
+| Stage | Script | Env | Effect |
+|---|---|---|---|
+| 1 | `export_video_fenet_lanes.py --dataset $1` | fenet | Picks up to 60 frames from the longest clip in the chosen dataset (or the clip matched by `clip`), runs FENet, caches lanes + a `frame_list.txt` to `<dataset>/video_lanes_cache/`. |
+| 2 | `render_combined_video.py --dataset $1 --smooth $2 --fps $3` | segman | Reads `frame_list.txt`, runs SegMAN per frame, composites blue driveable + coloured lanes, writes `<dataset>/combined_video.mp4` while showing a live window. |
+
+Positional arguments (all optional except the dataset):
+
+| Arg | Default | Meaning |
+|---|---|---|
+| `dataset` | — | `indian` (IDD val, scene `420` is the default longest) or `culane` (rural test). |
+| `smooth_k` | 4 | Cross-fade frames inserted between each pair of model-inferenced frames to hide gaps in the source data. `0` disables smoothing entirely. The MP4's stored FPS is scaled to `fps*(1+smooth_k)` so wall-clock pace matches `fps`. |
+| `fps` | 10 | Real-frame playback rate. Use 5 for very sparse data, 30 for densely consecutive clips. |
+| `clip` | longest | Substring matched against the clip / scene name (e.g. `0325` for the CULane source MP4 ending in `0325`). On no match, the script lists the top-10 candidates and exits. Pass `""` to skip this slot. |
+| `source_dir` | dataset default | Override the directory of jpgs to sample from. The CULane train split at `temp_AML/.../culane/img_dir/train` has clips with up to 109 frames vs 31 in the rural test, so it's better for longer videos. |
+
+**Common invocations:**
+
+```bash
+# defaults: rural test + auto-pick clip + smooth=4, fps=10
+./Scripts/run_combined_video.sh culane
+
+# IDD scene 497 instead of the auto-picked 420
+./Scripts/run_combined_video.sh indian 4 10 497
+
+# CULane train split, clip with substring "0325", no smoothing, 5 fps
+./Scripts/run_combined_video.sh culane 0 5 0325 \
+    /home/g6/temp_AML/Road_Segmentation/SegMAN/data/culane/img_dir/train
+
+# more smoothing, slower playback
+./Scripts/run_combined_video.sh indian 8 5
+```
+
+A note on "skipped" frames: CULane and IDD both sample frames non-uniformly from their source videos (gaps of 1 sec to 6+ sec are common). The script never drops anything — every available frame in the chosen clip is rendered. Cross-fading hides the visible jumps without faking new model predictions.
+
+To change the frame cap, edit `NUM_FRAMES` at the top of [Scripts/export_video_fenet_lanes.py](Scripts/export_video_fenet_lanes.py).
 
 ---
 
