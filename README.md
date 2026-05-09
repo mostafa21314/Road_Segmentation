@@ -25,7 +25,7 @@ Road_Segmentation/
 │       └── FENetV2_dla34_culane_rural_finetune.py                  ← finetune config
 ├── SegMAN/
 │   ├── convert_culane_to_masks.py                                  ← CULane → MMSeg masks
-│   ├── validate.py                                                  ← CULane validation
+│   ├── validate.py                                                 ← CULane validation
 │   ├── prepare_idd20k_road_masks.py                                ← IDD-20k-II → binary masks
 │   ├── train_segman_tiny_idd_baseline.py                           ← IDD baseline training
 │   ├── train_segman_small_cnn_branch_idd.py                        ← CNN-branch variant training
@@ -54,7 +54,6 @@ Road_Segmentation/
 │               └── segman_t_carla_freeze_finetune.py               ← frozen-backbone CARLA config
 └── CULane_Rural_Subset(1)/CULane_Rural_Subset/                     ← dataset (not committed)
 ```
-
 ---
 
 ## Setup
