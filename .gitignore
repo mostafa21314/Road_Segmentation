@@ -8,7 +8,6 @@ data/
 # Cloned repos — fully ignored (track only our contributions
 # via explicit git add -f)
 # ============================================================
-SegMAN/
 FENet/
 CLRerNet/
 
