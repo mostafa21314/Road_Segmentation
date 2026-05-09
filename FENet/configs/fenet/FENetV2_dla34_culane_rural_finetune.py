@@ -16,8 +16,8 @@ heads = dict(type='FEHeadV2',
              fc_hidden_dim=64,
              sample_points=36)
 
-Piou_loss_weight = 4.
-cls_loss_weight = 4.
+Piou_loss_weight = 8.
+cls_loss_weight = 8.
 xyt_loss_weight = 0.2
 seg_loss_weight = 1.0
 Dliou_loss_weight = 1
